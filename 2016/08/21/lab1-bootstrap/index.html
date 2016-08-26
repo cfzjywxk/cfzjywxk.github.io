@@ -1,0 +1,344 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  <title>lab1-启动流程分析 | ray的笔记本</title>
+  <meta name="author" content="ray">
+  
+  <meta name="description" content="启动流程分析重新仔细看了看6828的lab1做一下笔记
+物理内存地址空间和BIOS64KB region from 0x000F0000 through 0x000FFFFF 这一块地址是给BIOS预留的，主板上电会自动把BIOS程序从ROMload到这个内存地址当中
+x86的cpu从这里执行第一条指令1[f000:fff0] 0xffff0:	ljmp   $0xf000,$0xe05b">
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+  <meta property="og:title" content="lab1-启动流程分析"/>
+  <meta property="og:site_name" content="ray的笔记本"/>
+
+  
+    <meta property="og:image" content="undefined"/>
+  
+
+  
+  
+    <link href="/favicon.png" rel="icon">
+  
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/css/themes/bootstrap.css" media="screen" type="text/css">
+  <link rel="stylesheet" href="/css/font-awesome.css" media="screen" type="text/css">
+  <link rel="stylesheet" href="/css/style.css" media="screen" type="text/css">
+  <link rel="stylesheet" href="/css/responsive.css" media="screen" type="text/css">
+  <link rel="stylesheet" href="/css/highlight.css" media="screen" type="text/css">
+  <link rel="stylesheet" href="/css/google-fonts.css" media="screen" type="text/css">
+  <!--[if lt IE 9]><script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script><![endif]-->
+
+  <script src="/js/jquery-2.0.3.min.js"></script>
+
+  <!-- analytics -->
+  
+
+
+
+</head>
+
+ <body>  
+  <nav id="main-nav" class="navbar navbar-inverse navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+      <button type="button" class="navbar-header navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+	<span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+       <a class="navbar-brand" href="/">ray的笔记本</a>
+      <div class="collapse navbar-collapse nav-menu">
+		<ul class="nav navbar-nav">
+		  
+		  <li>
+			<a href="/archives" title="所有的文章列表">
+			  <i class="fa fa-archive"></i>文章目录
+			</a>
+		  </li>
+		  
+		  <li>
+			<a href="/categories" title="分类目录">
+			  <i class="fa fa-folder"></i>分类目录
+			</a>
+		  </li>
+		  
+		  <li>
+			<a href="/tags" title="标签目录">
+			  <i class="fa fa-tags"></i>标签目录
+			</a>
+		  </li>
+		  
+		  <li>
+			<a href="/about" title="ray">
+			  <i class="fa fa-user"></i>关于
+			</a>
+		  </li>
+		  
+		</ul>
+      </div>
+    </div> <!-- container -->
+</nav>
+<div class="clearfix"></div>
+
+  <div class="container">
+  	<div class="content">
+    	 
+
+
+	
+		<div class="page-header page-header-inverse ">		
+			<h1 class="title title-inverse "> lab1-启动流程分析</h1>
+		</div>		
+	
+
+
+
+
+
+
+<div class="row post">
+	<!-- cols -->
+	
+	<div id="top_meta"></div>
+	<div class="col-md-9">
+	
+
+	<!-- content -->
+	<div class="mypage">		
+	  		
+
+	  <h2 id="启动流程分析"><a href="#启动流程分析" class="headerlink" title="启动流程分析"></a>启动流程分析</h2><p>重新仔细看了看<a href="https://pdos.csail.mit.edu/6.828/2014/labs/lab1/" target="_blank" rel="external">6828的lab1</a><br>做一下笔记</p>
+<h2 id="物理内存地址空间和BIOS"><a href="#物理内存地址空间和BIOS" class="headerlink" title="物理内存地址空间和BIOS"></a>物理内存地址空间和BIOS</h2><p><strong>64KB region from 0x000F0000 through 0x000FFFFF</strong> 这一块地址是给BIOS预留的，主板上电会自动把BIOS程序从ROM<strong>load</strong>到这个内存地址当中</p>
+<p>x86的cpu从这里执行第一条指令<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">[f000:fff0] 0xffff0:	ljmp   $0xf000,$0xe05b</div></pre></td></tr></table></figure></p>
+<a id="more"></a>
+<ul>
+<li>IBM PC 从这里开始执行0x000ffff0, 这个地址就是给BIOS预留的最高的地址</li>
+<li>可以看出执行的寄存器内容是 CS = 0xf000 and IP = 0xfff0.</li>
+<li>这一条简单的跳转，转到了BIOS开始的位置 CS = 0xf000 and IP = 0xe05b.</li>
+</ul>
+<p>BIOS做了写什么？</p>
+<ul>
+<li>硬件初始化，例如检测内存和显卡之类的事情</li>
+<li>加载bootloader到内存当中，把控制权交给bootloader</li>
+</ul>
+<h2 id="Bootloader做了什么"><a href="#Bootloader做了什么" class="headerlink" title="Bootloader做了什么"></a>Bootloader做了什么</h2><p>按照约定，bootloader的位置应该在硬盘的1柱1面1扇区，有512个字节的空间可以存储bootloader的内容</p>
+<p>同样是历史原因，bootloader需要被加载<strong>0000:0x7c00</strong>这个位置，具体原因参见<a href="http://www.ruanyifeng.com/blog/2015/09/0x7c00.html" target="_blank" rel="external">阮老师的解释</a></p>
+<p>bootloader做的事情，以jos的代码为例:</p>
+<ul>
+<li>把x86的cpu从实模式切换到保护模式</li>
+<li>调用硬件接口把os内核代码从磁盘加载到内存当中，这里指的当然就是jos的elf格式的程序</li>
+</ul>
+<h2 id="内核部分"><a href="#内核部分" class="headerlink" title="内核部分"></a>内核部分</h2><p>这里jos的内核也是由编译链接生成的ELF格式文件，权且把它当成(只包含感兴趣的部分)</p>
+<table>
+<thead>
+<tr>
+<th>名称</th>
+<th style="text-align:center">作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>header</td>
+<td style="text-align:center">头部信息</td>
+</tr>
+<tr>
+<td>.text</td>
+<td style="text-align:center">可执行的指令</td>
+</tr>
+<tr>
+<td>.rodata</td>
+<td style="text-align:center">只读数据，例如常量字符串</td>
+</tr>
+<tr>
+<td>.data</td>
+<td style="text-align:center">全局变量信息，已经被初始化的</td>
+</tr>
+</tbody>
+</table>
+<p>链接器在link的时候，会为没有初始化的全局变量预留空间，这个部分叫做<strong>bss</strong>段<br>加载的时候会被初始化为0，当然无论什么情况下<strong>C/C++</strong>里面，变量一定要在定义的时候初始化，这是一个基本要求。</p>
+<p>bootloader的makefile里面有一段这样的代码<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">$(OBJDIR)/boot/boot: $(BOOT_OBJS)</div><div class="line">	@echo + ld boot/boot</div><div class="line">	$(V)$(LD) $(LDFLAGS) -N -e start -Ttext 0x7C00 -o $@.out $^</div><div class="line">	$(V)$(OBJDUMP) -S $@.out &gt;$@.asm</div><div class="line">	$(V)$(OBJCOPY) -S -O binary -j .text $@.out $@</div><div class="line">	$(V)perl boot/sign.pl $(OBJDIR)/boot/boot</div></pre></td></tr></table></figure></p>
+<p>注意到<strong>-Ttext 0x7c00</strong>这个选项不能丢失，因为load的目标地址（load address)已经确定，链接地址（link address）需要与之对应，否则可能找不到函数地址。</p>
+<p>仅限于bootloader的代码保证这两个地址一致，内核代码完全不同。</p>
+<h2 id="内核继续"><a href="#内核继续" class="headerlink" title="内核继续"></a>内核继续</h2><p>对于内核而言，喜欢被链接到高地址，例如<strong>0xf0100000</strong>，但是实际物理内存可能没有这么多。<br>对jos的内核而言，实际被加载到了1MB这个地方，在BIOS的内存地址上面<br>目前而言，简单硬编码4MB的内存空间映射（我们现在已经进入保护模式）<br>具体实现方法，就是做了一个手写的4MB的页目录结构，然后地址传给了cr3寄存器，进而开启分页</p>
+<p>页目录定义<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div></pre></td><td class="code"><pre><div class="line">__attribute__((__aligned__(PGSIZE)))</div><div class="line">pde_t entry_pgdir[NPDENTRIES] = &#123;</div><div class="line">	// Map VA&apos;s [0, 4MB) to PA&apos;s [0, 4MB)</div><div class="line">	[0]</div><div class="line">		= ((uintptr_t)entry_pgtable - KERNBASE) + PTE_P,</div><div class="line">	// Map VA&apos;s [KERNBASE, KERNBASE+4MB) to PA&apos;s [0, 4MB)</div><div class="line">	[KERNBASE&gt;&gt;PDXSHIFT]</div><div class="line">		= ((uintptr_t)entry_pgtable - KERNBASE) + PTE_P + PTE_W</div><div class="line">&#125;;</div><div class="line"></div><div class="line">// Entry 0 of the page table maps to physical page 0, entry 1 to</div><div class="line">// physical page 1, etc.</div><div class="line">__attribute__((__aligned__(PGSIZE)))</div><div class="line">pte_t entry_pgtable[NPTENTRIES] = &#123;</div><div class="line">	0x000000 | PTE_P | PTE_W,</div><div class="line">	0x001000 | PTE_P | PTE_W,</div><div class="line">	0x002000 | PTE_P | PTE_W,</div><div class="line">    .</div><div class="line">    .</div><div class="line">    .</div></pre></td></tr></table></figure></p>
+<p>对应汇编<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line"># We haven&apos;t set up virtual memory yet, so we&apos;re running from</div><div class="line"># the physical address the boot loader loaded the kernel at: 1MB</div><div class="line"># (plus a few bytes).  However, the C code is linked to run at</div><div class="line"># KERNBASE+1MB.  Hence, we set up a trivial page directory that</div><div class="line"># translates virtual addresses [KERNBASE, KERNBASE+4MB) to</div><div class="line"># physical addresses [0, 4MB).  This 4MB region will be</div><div class="line"># sufficient until we set up our real page table in mem_init</div><div class="line"># in lab 2.</div><div class="line"></div><div class="line"># Load the physical address of entry_pgdir into cr3.  entry_pgdir</div><div class="line"># is defined in entrypgdir.c.</div><div class="line">movl	$(RELOC(entry_pgdir)), %eax</div><div class="line">movl	%eax, %cr3</div><div class="line"># Turn on paging.</div><div class="line">movl	%cr0, %eax</div><div class="line">orl	$(CR0_PE|CR0_PG|CR0_WP), %eax</div><div class="line">movl	%eax, %cr0</div></pre></td></tr></table></figure></p>
+<h2 id="第一个需要动手写代码的练习"><a href="#第一个需要动手写代码的练习" class="headerlink" title="第一个需要动手写代码的练习"></a>第一个需要动手写代码的练习</h2><p>lab1的练习需要写代码的比较少，还比较温柔</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">Exercise 8. We have omitted a small fragment of code - the code necessary to print octal numbers using patterns of the form &quot;%o&quot;. Find and fill in this code fragment.</div></pre></td></tr></table></figure>
+<p>对应修改</p>
+<h2 id="STACK"><a href="#STACK" class="headerlink" title="STACK"></a>STACK</h2><p>栈空间的练习</p>
+<p>主要与C的calling convetion有关<br>主要操作在于</p>
+<ul>
+<li>push params from right to left</li>
+<li>push %eip </li>
+<li>push %ebp</li>
+<li>mov %esp, %ebp</li>
+</ul>
+<p>32bit和64bit os细节有所不同</p>
+<p>Exercise 12比较有意思<br>提供了符号表接口<strong>stab_search</strong></p>
+<p>需要注意的是理解stab这个数据结构的具体含义，以及每一项内容的细节</p>
+<p>lab1解答见<a href="https://github.com/cfzjywxk/6.828lab" target="_blank" rel="external">lab1</a></p>
+	  
+	</div>
+
+	<div>
+  	<center>
+	<div class="pagination">
+<ul class="pagination">
+	 
+				
+    	<li class="prev"><a href="/2016/08/22/lab2-memory-management/" class="alignleft prev"><i class="fa fa-arrow-circle-o-left"></i>Prev</a></li>
+  		
+
+        <li><a href="/archives"><i class="fa fa-archive"></i>Archive</a></li>
+
+		
+		   <li class="next"><a href="/2016/08/20/hello-again/" class="alignright next">Next<i class="fa fa-arrow-circle-o-right"></i></a></li>         
+        
+	
+</ul>
+</div>
+
+    </center>
+	</div>
+
+    <!-- share -->
+    
+        
+    <div class="bdsharebuttonbox">
+        <a href="#" class="bds_more" data-cmd="more"></a>
+        <a href="#" class="bds_weixin" data-cmd="weixin" title="分享到微信"></a>
+        <a href="#" class="bds_tsina" data-cmd="tsina" title="分享到新浪微博"></a>
+        <a href="#" class="bds_fbook" data-cmd="fbook" title="分享到Facebook"></a>
+        <a href="#" class="bds_twi" data-cmd="twi" title="分享到Twitter"></a>
+        <a href="#" class="bds_linkedin" data-cmd="linkedin" title="分享到linkedin"></a>
+        <a href="#" class="bds_evernotecn" data-cmd="evernotecn" title="分享到印象笔记"></a>
+        <a href="#" class="bds_youdao" data-cmd="youdao" title="分享到有道云笔记"></a>
+        <a href="#" class="bds_copy" data-cmd="copy" title="分享到复制网址"></a>
+    </div>
+    <script>
+        window._bd_share_config={"common":{"bdSnsKey":{},"bdText":"","bdMini":"2","bdMiniList":false,"bdPic":"","bdStyle":"1","bdSize":"24"},"share":{}};
+        with(document)0[(getElementsByTagName('head')[0]||body).appendChild(createElement('script')).src='http://bdimg.share.baidu.com/static/api/js/share.js?v=89860593.js?cdnversion='+~(-new Date()/36e5)];
+    </script>
+
+
+        
+
+    
+	
+	<!-- comment -->
+	
+<section id="comment">
+  <h2 class="title">Comments</h2>
+
+  
+  	 <div class="ds-thread" data-thread-key="2016/08/21/lab1-bootstrap/" data-title="lab1-启动流程分析" data-url="http://yoursite.com/2016/08/21/lab1-bootstrap/"></div>  
+  
+</section>
+
+	</div> <!-- col-md-9/col-md-12 -->
+		
+	
+	<div id="side_meta">
+		<div class="col-md-3" id="post_meta"> 
+
+	<!-- date -->
+	
+	<div class="meta-widget">
+	<i class="fa fa-clock-o"></i>
+	2016-08-21 
+	</div>
+	
+
+	<!-- categories -->
+    
+
+	<!-- tags -->
+	
+	<div class="meta-widget">
+	<a data-toggle="collapse" data-target="#tags"><i class="fa fa-tags"></i></a>		  
+    <ul id="tags" class="tag_box list-unstyled collapse in">	  
+	    
+  <li><a href="/tags/os/">os<span>1</span></a></li>
+    </ul>
+	</div>
+		
+
+	<!-- toc -->
+	<div class="meta-widget">
+	
+	</div>
+	
+    <hr>
+	
+</div><!-- col-md-3 -->
+
+	</div>
+		
+
+</div><!-- row -->
+
+<script type="text/javascript">
+  var duoshuoQuery = { short_name: 'rtech' };
+  (function() {
+    var ds = document.createElement('script');
+    ds.type = 'text/javascript';
+    ds.async = true;
+    ds.src = 'http://static.duoshuo.com/embed.js';
+    ds.charset = 'UTF-8';
+    (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(ds);
+  })();
+</script>
+
+
+
+	</div>
+  </div>
+  <div class="container-narrow">
+  <footer> <p>
+  &copy; 2016 ray
+  
+      with help from <a href="http://hexo.io/" target="_blank">Hexo</a> and <a href="http://getbootstrap.com/" target="_blank">Twitter Bootstrap</a>. Theme by <a href="http://github.com/wzpan/hexo-theme-freemind/">Freemind</a>.    
+</p> </footer>
+</div> <!-- container-narrow -->
+  
+
+
+  
+<a id="gotop" href="#">   
+  <span>▲</span> 
+</a>
+
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+<script src="/js/bootstrap.min.js"></script>
+<script src="/js/main.js"></script>
+<script src="/js/search.js"></script> 
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+(function($){
+  $('.fancybox').fancybox();
+})(jQuery);
+</script>
+
+
+
+   <script type="text/javascript">      
+     var search_path = "search.xml";
+	 if (search_path.length == 0) {
+	 	search_path = "search.xml";
+	 }
+	 var path = "/" + search_path;
+     searchFunc(path, 'local-search-input', 'local-search-result');
+   </script>
+
+</body>
+   </html>

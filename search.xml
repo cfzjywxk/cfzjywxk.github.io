@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<search>
+  
+  
+    
+    <entry>
+      <title><![CDATA[lab2-memory management]]></title>
+      <url>http://yoursite.com/2016/08/22/lab2-memory-management/</url>
+      <content type="html"><![CDATA[<h1 id="x86的内存管理机制和Jos的相关内容"><a href="#x86的内存管理机制和Jos的相关内容" class="headerlink" title="x86的内存管理机制和Jos的相关内容"></a>x86的内存管理机制和Jos的相关内容</h1><p>话说mit的lab也真是良心..</p>
+<p>这一部分的主要目的是完成内核的内存管理相关流程.<br>在lab1里面,只是简单的硬编码了一个页表,将所有地址都映射到这张页表</p>
+<p>一共<strong>1k * 4kb = 4MB</strong>的内存空间用于bootstrap操作,这一部分之后,需要将更多的256M内存管理起来.</p>
+<a id="more"></a>
+<p>x86硬件部分的mmu机制</p>
+<pre><code> Selector  +--------------+         +-----------+
+----------&gt;|              |         |           |
+           | Segmentation |         |  Paging   |
+           |              |--------&gt;|           |----------&gt;  RAM
+  Offset   |  Mechanism   |         | Mechanism |
+----------&gt;|              |         |           |
+           +--------------+         +-----------+
+  Virtual                   Linear                Physical
+</code></pre><p>jos内核这一部分暂时不分段,所以之考虑分页操作(Global Descriptor Table (GDT) that effectively disabled segment translation by setting all segment base addresses to 0 and limits to 0xffffffff.)</p>
+<h1 id="JOS的内存布局"><a href="#JOS的内存布局" class="headerlink" title="JOS的内存布局"></a>JOS的内存布局</h1><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div><div class="line">49</div><div class="line">50</div><div class="line">51</div><div class="line">52</div><div class="line">53</div><div class="line">54</div><div class="line">55</div><div class="line">56</div><div class="line">57</div><div class="line">58</div><div class="line">59</div><div class="line">60</div><div class="line">61</div><div class="line">62</div><div class="line">63</div></pre></td><td class="code"><pre><div class="line">/*</div><div class="line"> * Virtual memory map:                                Permissions</div><div class="line"> *                                                    kernel/user</div><div class="line"> *</div><div class="line"> *    4 Gig --------&gt;  +------------------------------+</div><div class="line"> *                     |                              | RW/--</div><div class="line"> *                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~</div><div class="line"> *                     :              .               :</div><div class="line"> *                     :              .               :</div><div class="line"> *                     :              .               :</div><div class="line"> *                     |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~| RW/--</div><div class="line"> *                     |                              | RW/--</div><div class="line"> *                     |   Remapped Physical Memory   | RW/--</div><div class="line"> *                     |                              | RW/--</div><div class="line"> *    KERNBASE, ----&gt;  +------------------------------+ 0xf0000000      --+</div><div class="line"> *    KSTACKTOP        |     CPU0&apos;s Kernel Stack      | RW/--  KSTKSIZE   |</div><div class="line"> *                     | - - - - - - - - - - - - - - -|                   |</div><div class="line"> *                     |      Invalid Memory (*)      | --/--  KSTKGAP    |</div><div class="line"> *                     +------------------------------+                   |</div><div class="line"> *                     |     CPU1&apos;s Kernel Stack      | RW/--  KSTKSIZE   |</div><div class="line"> *                     | - - - - - - - - - - - - - - -|                 PTSIZE</div><div class="line"> *                     |      Invalid Memory (*)      | --/--  KSTKGAP    |</div><div class="line"> *                     +------------------------------+                   |</div><div class="line"> *                     :              .               :                   |</div><div class="line"> *                     :              .               :                   |</div><div class="line"> *    MMIOLIM ------&gt;  +------------------------------+ 0xefc00000      --+</div><div class="line"> *                     |       Memory-mapped I/O      | RW/--  PTSIZE</div><div class="line"> * ULIM, MMIOBASE --&gt;  +------------------------------+ 0xef800000</div><div class="line"> *                     |  Cur. Page Table (User R-)   | R-/R-  PTSIZE</div><div class="line"> *    UVPT      ----&gt;  +------------------------------+ 0xef400000</div><div class="line"> *                     |          RO PAGES            | R-/R-  PTSIZE</div><div class="line"> *    UPAGES    ----&gt;  +------------------------------+ 0xef000000</div><div class="line"> *                     |           RO ENVS            | R-/R-  PTSIZE</div><div class="line"> * UTOP,UENVS ------&gt;  +------------------------------+ 0xeec00000</div><div class="line"> * UXSTACKTOP -/       |     User Exception Stack     | RW/RW  PGSIZE</div><div class="line"> *                     +------------------------------+ 0xeebff000</div><div class="line"> *                     |       Empty Memory (*)       | --/--  PGSIZE</div><div class="line"> *    USTACKTOP  ---&gt;  +------------------------------+ 0xeebfe000</div><div class="line"> *                     |      Normal User Stack       | RW/RW  PGSIZE</div><div class="line"> *                     +------------------------------+ 0xeebfd000</div><div class="line"> *                     |                              |</div><div class="line"> *                     |                              |</div><div class="line"> *                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~</div><div class="line"> *                     .                              .</div><div class="line"> *                     .                              .</div><div class="line"> *                     .                              .</div><div class="line"> *                     |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|</div><div class="line"> *                     |     Program Data &amp; Heap      |</div><div class="line"> *    UTEXT --------&gt;  +------------------------------+ 0x00800000</div><div class="line"> *    PFTEMP -------&gt;  |       Empty Memory (*)       |        PTSIZE</div><div class="line"> *                     |                              |</div><div class="line"> *    UTEMP --------&gt;  +------------------------------+ 0x00400000      --+</div><div class="line"> *                     |       Empty Memory (*)       |                   |</div><div class="line"> *                     | - - - - - - - - - - - - - - -|                   |</div><div class="line"> *                     |  User STAB Data (optional)   |                 PTSIZE</div><div class="line"> *    USTABDATA ----&gt;  +------------------------------+ 0x00200000        |</div><div class="line"> *                     |       Empty Memory (*)       |                   |</div><div class="line"> *    0 ------------&gt;  +------------------------------+                 --+</div><div class="line"> *</div><div class="line"> * (*) Note: The kernel ensures that &quot;Invalid Memory&quot; is *never* mapped.</div><div class="line"> *     &quot;Empty Memory&quot; is normally unmapped, but user programs may map pages</div><div class="line"> *     there if desired.  JOS user programs map pages temporarily at UTEMP.</div><div class="line"> */</div></pre></td></tr></table></figure>
+<p>内核相关内存部分映射到KERNBASE之上</p>
+<p>内核用一个数组</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">struct PageInfo *pages;</div></pre></td></tr></table></figure>
+<p>来管理所有的物理页,没一个page对应一个物理页using page2pa()这个宏</p>
+<ul>
+<li>按照memorylayout.h所指的图完成内核部分映射,并设置对应的权限位</li>
+<li>实现一些基础的接口,例如pgdir_walk  page_insert page_remove boot_map_region等</li>
+</ul>
+<p>遇到的主要问题是,映射pages对应的物理地址一开始用成了<code>page2pa()</code> 而非 <code>PADDR</code><br>调试了半天,真是尴尬</p>
+<p><a href="https://github.com/cfzjywxk/6.828lab/tree/lab2" target="_blank" rel="external">代码地址</a></p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[lab1-启动流程分析]]></title>
+      <url>http://yoursite.com/2016/08/21/lab1-bootstrap/</url>
+      <content type="html"><![CDATA[<h2 id="启动流程分析"><a href="#启动流程分析" class="headerlink" title="启动流程分析"></a>启动流程分析</h2><p>重新仔细看了看<a href="https://pdos.csail.mit.edu/6.828/2014/labs/lab1/" target="_blank" rel="external">6828的lab1</a><br>做一下笔记</p>
+<h2 id="物理内存地址空间和BIOS"><a href="#物理内存地址空间和BIOS" class="headerlink" title="物理内存地址空间和BIOS"></a>物理内存地址空间和BIOS</h2><p><strong>64KB region from 0x000F0000 through 0x000FFFFF</strong> 这一块地址是给BIOS预留的，主板上电会自动把BIOS程序从ROM<strong>load</strong>到这个内存地址当中</p>
+<p>x86的cpu从这里执行第一条指令<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">[f000:fff0] 0xffff0:	ljmp   $0xf000,$0xe05b</div></pre></td></tr></table></figure></p>
+<a id="more"></a>
+<ul>
+<li>IBM PC 从这里开始执行0x000ffff0, 这个地址就是给BIOS预留的最高的地址</li>
+<li>可以看出执行的寄存器内容是 CS = 0xf000 and IP = 0xfff0.</li>
+<li>这一条简单的跳转，转到了BIOS开始的位置 CS = 0xf000 and IP = 0xe05b.</li>
+</ul>
+<p>BIOS做了写什么？</p>
+<ul>
+<li>硬件初始化，例如检测内存和显卡之类的事情</li>
+<li>加载bootloader到内存当中，把控制权交给bootloader</li>
+</ul>
+<h2 id="Bootloader做了什么"><a href="#Bootloader做了什么" class="headerlink" title="Bootloader做了什么"></a>Bootloader做了什么</h2><p>按照约定，bootloader的位置应该在硬盘的1柱1面1扇区，有512个字节的空间可以存储bootloader的内容</p>
+<p>同样是历史原因，bootloader需要被加载<strong>0000:0x7c00</strong>这个位置，具体原因参见<a href="http://www.ruanyifeng.com/blog/2015/09/0x7c00.html" target="_blank" rel="external">阮老师的解释</a></p>
+<p>bootloader做的事情，以jos的代码为例:</p>
+<ul>
+<li>把x86的cpu从实模式切换到保护模式</li>
+<li>调用硬件接口把os内核代码从磁盘加载到内存当中，这里指的当然就是jos的elf格式的程序</li>
+</ul>
+<h2 id="内核部分"><a href="#内核部分" class="headerlink" title="内核部分"></a>内核部分</h2><p>这里jos的内核也是由编译链接生成的ELF格式文件，权且把它当成(只包含感兴趣的部分)</p>
+<table>
+<thead>
+<tr>
+<th>名称</th>
+<th style="text-align:center">作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>header</td>
+<td style="text-align:center">头部信息</td>
+</tr>
+<tr>
+<td>.text</td>
+<td style="text-align:center">可执行的指令</td>
+</tr>
+<tr>
+<td>.rodata</td>
+<td style="text-align:center">只读数据，例如常量字符串</td>
+</tr>
+<tr>
+<td>.data</td>
+<td style="text-align:center">全局变量信息，已经被初始化的</td>
+</tr>
+</tbody>
+</table>
+<p>链接器在link的时候，会为没有初始化的全局变量预留空间，这个部分叫做<strong>bss</strong>段<br>加载的时候会被初始化为0，当然无论什么情况下<strong>C/C++</strong>里面，变量一定要在定义的时候初始化，这是一个基本要求。</p>
+<p>bootloader的makefile里面有一段这样的代码<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">$(OBJDIR)/boot/boot: $(BOOT_OBJS)</div><div class="line">	@echo + ld boot/boot</div><div class="line">	$(V)$(LD) $(LDFLAGS) -N -e start -Ttext 0x7C00 -o $@.out $^</div><div class="line">	$(V)$(OBJDUMP) -S $@.out &gt;$@.asm</div><div class="line">	$(V)$(OBJCOPY) -S -O binary -j .text $@.out $@</div><div class="line">	$(V)perl boot/sign.pl $(OBJDIR)/boot/boot</div></pre></td></tr></table></figure></p>
+<p>注意到<strong>-Ttext 0x7c00</strong>这个选项不能丢失，因为load的目标地址（load address)已经确定，链接地址（link address）需要与之对应，否则可能找不到函数地址。</p>
+<p>仅限于bootloader的代码保证这两个地址一致，内核代码完全不同。</p>
+<h2 id="内核继续"><a href="#内核继续" class="headerlink" title="内核继续"></a>内核继续</h2><p>对于内核而言，喜欢被链接到高地址，例如<strong>0xf0100000</strong>，但是实际物理内存可能没有这么多。<br>对jos的内核而言，实际被加载到了1MB这个地方，在BIOS的内存地址上面<br>目前而言，简单硬编码4MB的内存空间映射（我们现在已经进入保护模式）<br>具体实现方法，就是做了一个手写的4MB的页目录结构，然后地址传给了cr3寄存器，进而开启分页</p>
+<p>页目录定义<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div></pre></td><td class="code"><pre><div class="line">__attribute__((__aligned__(PGSIZE)))</div><div class="line">pde_t entry_pgdir[NPDENTRIES] = &#123;</div><div class="line">	// Map VA&apos;s [0, 4MB) to PA&apos;s [0, 4MB)</div><div class="line">	[0]</div><div class="line">		= ((uintptr_t)entry_pgtable - KERNBASE) + PTE_P,</div><div class="line">	// Map VA&apos;s [KERNBASE, KERNBASE+4MB) to PA&apos;s [0, 4MB)</div><div class="line">	[KERNBASE&gt;&gt;PDXSHIFT]</div><div class="line">		= ((uintptr_t)entry_pgtable - KERNBASE) + PTE_P + PTE_W</div><div class="line">&#125;;</div><div class="line"></div><div class="line">// Entry 0 of the page table maps to physical page 0, entry 1 to</div><div class="line">// physical page 1, etc.</div><div class="line">__attribute__((__aligned__(PGSIZE)))</div><div class="line">pte_t entry_pgtable[NPTENTRIES] = &#123;</div><div class="line">	0x000000 | PTE_P | PTE_W,</div><div class="line">	0x001000 | PTE_P | PTE_W,</div><div class="line">	0x002000 | PTE_P | PTE_W,</div><div class="line">    .</div><div class="line">    .</div><div class="line">    .</div></pre></td></tr></table></figure></p>
+<p>对应汇编<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div></pre></td><td class="code"><pre><div class="line"># We haven&apos;t set up virtual memory yet, so we&apos;re running from</div><div class="line"># the physical address the boot loader loaded the kernel at: 1MB</div><div class="line"># (plus a few bytes).  However, the C code is linked to run at</div><div class="line"># KERNBASE+1MB.  Hence, we set up a trivial page directory that</div><div class="line"># translates virtual addresses [KERNBASE, KERNBASE+4MB) to</div><div class="line"># physical addresses [0, 4MB).  This 4MB region will be</div><div class="line"># sufficient until we set up our real page table in mem_init</div><div class="line"># in lab 2.</div><div class="line"></div><div class="line"># Load the physical address of entry_pgdir into cr3.  entry_pgdir</div><div class="line"># is defined in entrypgdir.c.</div><div class="line">movl	$(RELOC(entry_pgdir)), %eax</div><div class="line">movl	%eax, %cr3</div><div class="line"># Turn on paging.</div><div class="line">movl	%cr0, %eax</div><div class="line">orl	$(CR0_PE|CR0_PG|CR0_WP), %eax</div><div class="line">movl	%eax, %cr0</div></pre></td></tr></table></figure></p>
+<h2 id="第一个需要动手写代码的练习"><a href="#第一个需要动手写代码的练习" class="headerlink" title="第一个需要动手写代码的练习"></a>第一个需要动手写代码的练习</h2><p>lab1的练习需要写代码的比较少，还比较温柔</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">Exercise 8. We have omitted a small fragment of code - the code necessary to print octal numbers using patterns of the form &quot;%o&quot;. Find and fill in this code fragment.</div></pre></td></tr></table></figure>
+<p>对应修改</p>
+<h2 id="STACK"><a href="#STACK" class="headerlink" title="STACK"></a>STACK</h2><p>栈空间的练习</p>
+<p>主要与C的calling convetion有关<br>主要操作在于</p>
+<ul>
+<li>push params from right to left</li>
+<li>push %eip </li>
+<li>push %ebp</li>
+<li>mov %esp, %ebp</li>
+</ul>
+<p>32bit和64bit os细节有所不同</p>
+<p>Exercise 12比较有意思<br>提供了符号表接口<strong>stab_search</strong></p>
+<p>需要注意的是理解stab这个数据结构的具体含义，以及每一项内容的细节</p>
+<p>lab1解答见<a href="https://github.com/cfzjywxk/6.828lab" target="_blank" rel="external">lab1</a></p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[hello-again]]></title>
+      <url>http://yoursite.com/2016/08/20/hello-again/</url>
+      <content type="html"><![CDATA[<p>go on wrting some blogs!</p>
+]]></content>
+    </entry>
+    
+  
+  
+</search>

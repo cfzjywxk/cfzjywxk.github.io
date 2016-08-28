@@ -4,6 +4,35 @@
   
     
     <entry>
+      <title><![CDATA[ptmalloc-1]]></title>
+      <url>http://yoursite.com/2016/08/28/ptmalloc-1/</url>
+      <content type="html"><![CDATA[<h1 id="glibc-ptmalloc-笔记-1"><a href="#glibc-ptmalloc-笔记-1" class="headerlink" title="glibc-ptmalloc 笔记-1"></a>glibc-ptmalloc 笔记-1</h1><p>读庭哥的源码剖析文档,做一些笔记</p>
+<h2 id="Linux进程的内存空间"><a href="#Linux进程的内存空间" class="headerlink" title="Linux进程的内存空间"></a>Linux进程的内存空间</h2><p>默认进程空间的大致布局如下:</p>
+<h2 id=""><a href="#" class="headerlink" title=""></a><a id="more"></a></h2><p>kernel space<br>stack space<br><strong>memory map region</strong><br><strong>heap</strong><br>bss<br>data seg<br>text seg<br>0</p>
+<hr>
+<p>heap 和 memory map region一开始并没有做映射,用户可以调系统调用,或者gilbc的库来做(malloc free),而且使用的是<strong>使用时真正映射</strong>的策略,一开始只是分配一个虚拟地址空间,真正使用的时候才会建立到物理内存的映射</p>
+<p>动态获取内存方法</p>
+<ul>
+<li>system call: brk mmap munmap </li>
+<li>glibc: sbrk </li>
+</ul>
+<h2 id="ptmalloc所处的位置"><a href="#ptmalloc所处的位置" class="headerlink" title="ptmalloc所处的位置"></a>ptmalloc所处的位置</h2><pre><code>ptmalloc 实现了 malloc(),free()以及一组其它的函数. 以提供动态内存管理的支持。分配器处在用户程序和内核之间,它响应用户的分配请求,向操作系统申请内存,然后将其返回给用户程序,为了保持高效的分配,分配器一般都会预先分配一块大于用户请求的内存,并通过某种算法管理这块内存。来满足用户的内存分配要求,用户释放掉的内存也并不是立即就返回给操作系统,相反,分配器会管理这些被释放掉的空闲空间,以应对用户以后的内存分配要求。也就是说,分配器不但要管理已分配的内存块,还需要管理空闲的内存块,当响应用户分配要求时,分配器会首先在空闲空间中寻找一块合适的内存给用户,在空闲空间中找不到的情况下才分配一块新的内存。为实现一个高效的分配器,需要考虑很多的因素。比如,分配器本身管理内存块所占用的内存空间必须很小,分配算法必须要足够的快。
+</code></pre><h2 id="分配区的概念"><a href="#分配区的概念" class="headerlink" title="分配区的概念"></a>分配区的概念</h2><p>  在 Doug Lea 实现的内存分配器中只有<strong>一个主分配区(main arena)</strong>,每次分配内存都必须对主分配区加锁,分配完成后释放锁,在 SMP 多线程环境下,对主分配区的锁的争用很激烈,严重影响了 malloc 的分配效率。于是 Wolfram Gloger 在 Doug Lea 的基础上改进使得Glibc 的 malloc 可以支持多线程,增加了<strong>非主分配区(non main arena)支持</strong>,主分配区与非主分配区用<strong>环形链表</strong>进行管理。每一个分配区利用互斥锁(mutex)使线程对于该分配区的访问互斥。</p>
+<ul>
+<li>每个进程主分配区只有一个,但非主分配区是动态的,可能有很多</li>
+<li>主分配区可能使用brk和mmap,非主份额皮去只使用mmap批发,大小为64M</li>
+<li>malloc基本路径:线程私有变量中寻找分配区,尝试加锁,如果全部都没有,开辟一个新的分配区</li>
+</ul>
+<p>所以<strong>线程多的情况下,锁开销很大,导致多线程情况下ptmalloc性能低于tcmalloc的实现</strong></p>
+<h2 id="chunck组织和meta信息管理"><a href="#chunck组织和meta信息管理" class="headerlink" title="chunck组织和meta信息管理"></a>chunck组织和meta信息管理</h2><p>每一个被分配给用户的内存区域,都有一个源自于ptmalloc的meta信息,这个整体叫做chuck</p>
+<p>chunck组织</p>
+<p><img src="/2016/08/28/ptmalloc-1/chunck.png" alt=""></p>
+<p>内存复用<br>当 chunk 空闲时,其 M 状态不存在,只有 AP 状态,原本是用户数据区的地方存储了四个指针,指针 fd 指向后一个空闲的 chunk,而 bk 指向前一个空闲的 chunk,ptmalloc 通过这两个指针将大小相近的 chunk 连成一个双向链表。</p>
+<p>这样做的目的在于后续的核心分配释放算法的时候,能够更有效的进行合并操作</p>
+]]></content>
+    </entry>
+    
+    <entry>
       <title><![CDATA[lab2-memory management]]></title>
       <url>http://yoursite.com/2016/08/22/lab2-memory-management/</url>
       <content type="html"><![CDATA[<h1 id="x86的内存管理机制和Jos的相关内容"><a href="#x86的内存管理机制和Jos的相关内容" class="headerlink" title="x86的内存管理机制和Jos的相关内容"></a>x86的内存管理机制和Jos的相关内容</h1><p>话说mit的lab也真是良心..</p>

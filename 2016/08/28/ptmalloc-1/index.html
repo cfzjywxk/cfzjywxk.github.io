@@ -1,0 +1,307 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  <title>ptmalloc-1 | ray的笔记本</title>
+  <meta name="author" content="ray">
+  
+  <meta name="description" content="glibc-ptmalloc 笔记-1读庭哥的源码剖析文档,做一些笔记
+Linux进程的内存空间默认进程空间的大致布局如下:">
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+  <meta property="og:title" content="ptmalloc-1"/>
+  <meta property="og:site_name" content="ray的笔记本"/>
+
+  
+    <meta property="og:image" content="undefined"/>
+  
+
+  
+  
+    <link href="/favicon.png" rel="icon">
+  
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/css/themes/bootstrap.css" media="screen" type="text/css">
+  <link rel="stylesheet" href="/css/font-awesome.css" media="screen" type="text/css">
+  <link rel="stylesheet" href="/css/style.css" media="screen" type="text/css">
+  <link rel="stylesheet" href="/css/responsive.css" media="screen" type="text/css">
+  <link rel="stylesheet" href="/css/highlight.css" media="screen" type="text/css">
+  <link rel="stylesheet" href="/css/google-fonts.css" media="screen" type="text/css">
+  <!--[if lt IE 9]><script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script><![endif]-->
+
+  <script src="/js/jquery-2.0.3.min.js"></script>
+
+  <!-- analytics -->
+  
+
+
+
+</head>
+
+ <body>  
+  <nav id="main-nav" class="navbar navbar-inverse navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+      <button type="button" class="navbar-header navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+	<span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+       <a class="navbar-brand" href="/">ray的笔记本</a>
+      <div class="collapse navbar-collapse nav-menu">
+		<ul class="nav navbar-nav">
+		  
+		  <li>
+			<a href="/archives" title="所有的文章列表">
+			  <i class="fa fa-archive"></i>文章目录
+			</a>
+		  </li>
+		  
+		  <li>
+			<a href="/categories" title="分类目录">
+			  <i class="fa fa-folder"></i>分类目录
+			</a>
+		  </li>
+		  
+		  <li>
+			<a href="/tags" title="标签目录">
+			  <i class="fa fa-tags"></i>标签目录
+			</a>
+		  </li>
+		  
+		  <li>
+			<a href="/about" title="ray">
+			  <i class="fa fa-user"></i>关于
+			</a>
+		  </li>
+		  
+		</ul>
+      </div>
+    </div> <!-- container -->
+</nav>
+<div class="clearfix"></div>
+
+  <div class="container">
+  	<div class="content">
+    	 
+
+
+	
+		<div class="page-header page-header-inverse ">		
+			<h1 class="title title-inverse "> ptmalloc-1</h1>
+		</div>		
+	
+
+
+
+
+
+
+<div class="row post">
+	<!-- cols -->
+	
+	<div id="top_meta"></div>
+	<div class="col-md-9">
+	
+
+	<!-- content -->
+	<div class="mypage">		
+	  		
+
+	  <h1 id="glibc-ptmalloc-笔记-1"><a href="#glibc-ptmalloc-笔记-1" class="headerlink" title="glibc-ptmalloc 笔记-1"></a>glibc-ptmalloc 笔记-1</h1><p>读庭哥的源码剖析文档,做一些笔记</p>
+<h2 id="Linux进程的内存空间"><a href="#Linux进程的内存空间" class="headerlink" title="Linux进程的内存空间"></a>Linux进程的内存空间</h2><p>默认进程空间的大致布局如下:</p>
+<h2 id=""><a href="#" class="headerlink" title=""></a><a id="more"></a></h2><p>kernel space<br>stack space<br><strong>memory map region</strong><br><strong>heap</strong><br>bss<br>data seg<br>text seg<br>0</p>
+<hr>
+<p>heap 和 memory map region一开始并没有做映射,用户可以调系统调用,或者gilbc的库来做(malloc free),而且使用的是<strong>使用时真正映射</strong>的策略,一开始只是分配一个虚拟地址空间,真正使用的时候才会建立到物理内存的映射</p>
+<p>动态获取内存方法</p>
+<ul>
+<li>system call: brk mmap munmap </li>
+<li>glibc: sbrk </li>
+</ul>
+<h2 id="ptmalloc所处的位置"><a href="#ptmalloc所处的位置" class="headerlink" title="ptmalloc所处的位置"></a>ptmalloc所处的位置</h2><pre><code>ptmalloc 实现了 malloc(),free()以及一组其它的函数. 以提供动态内存管理的支持。分配器处在用户程序和内核之间,它响应用户的分配请求,向操作系统申请内存,然后将其返回给用户程序,为了保持高效的分配,分配器一般都会预先分配一块大于用户请求的内存,并通过某种算法管理这块内存。来满足用户的内存分配要求,用户释放掉的内存也并不是立即就返回给操作系统,相反,分配器会管理这些被释放掉的空闲空间,以应对用户以后的内存分配要求。也就是说,分配器不但要管理已分配的内存块,还需要管理空闲的内存块,当响应用户分配要求时,分配器会首先在空闲空间中寻找一块合适的内存给用户,在空闲空间中找不到的情况下才分配一块新的内存。为实现一个高效的分配器,需要考虑很多的因素。比如,分配器本身管理内存块所占用的内存空间必须很小,分配算法必须要足够的快。
+</code></pre><h2 id="分配区的概念"><a href="#分配区的概念" class="headerlink" title="分配区的概念"></a>分配区的概念</h2><p>  在 Doug Lea 实现的内存分配器中只有<strong>一个主分配区(main arena)</strong>,每次分配内存都必须对主分配区加锁,分配完成后释放锁,在 SMP 多线程环境下,对主分配区的锁的争用很激烈,严重影响了 malloc 的分配效率。于是 Wolfram Gloger 在 Doug Lea 的基础上改进使得Glibc 的 malloc 可以支持多线程,增加了<strong>非主分配区(non main arena)支持</strong>,主分配区与非主分配区用<strong>环形链表</strong>进行管理。每一个分配区利用互斥锁(mutex)使线程对于该分配区的访问互斥。</p>
+<ul>
+<li>每个进程主分配区只有一个,但非主分配区是动态的,可能有很多</li>
+<li>主分配区可能使用brk和mmap,非主份额皮去只使用mmap批发,大小为64M</li>
+<li>malloc基本路径:线程私有变量中寻找分配区,尝试加锁,如果全部都没有,开辟一个新的分配区</li>
+</ul>
+<p>所以<strong>线程多的情况下,锁开销很大,导致多线程情况下ptmalloc性能低于tcmalloc的实现</strong></p>
+<h2 id="chunck组织和meta信息管理"><a href="#chunck组织和meta信息管理" class="headerlink" title="chunck组织和meta信息管理"></a>chunck组织和meta信息管理</h2><p>每一个被分配给用户的内存区域,都有一个源自于ptmalloc的meta信息,这个整体叫做chuck</p>
+<p>chunck组织</p>
+<p><img src="/2016/08/28/ptmalloc-1/chunck.png" alt=""></p>
+<p>内存复用<br>当 chunk 空闲时,其 M 状态不存在,只有 AP 状态,原本是用户数据区的地方存储了四个指针,指针 fd 指向后一个空闲的 chunk,而 bk 指向前一个空闲的 chunk,ptmalloc 通过这两个指针将大小相近的 chunk 连成一个双向链表。</p>
+<p>这样做的目的在于后续的核心分配释放算法的时候,能够更有效的进行合并操作</p>
+	  
+	</div>
+
+	<div>
+  	<center>
+	<div class="pagination">
+<ul class="pagination">
+	 
+		
+          <li class="prev disabled"><a><i class="fa fa-arrow-circle-o-left"></i>Prev</a></li>
+        
+
+        <li><a href="/archives"><i class="fa fa-archive"></i>Archive</a></li>
+
+		
+		   <li class="next"><a href="/2016/08/22/lab2-memory-management/" class="alignright next">Next<i class="fa fa-arrow-circle-o-right"></i></a></li>         
+        
+	
+</ul>
+</div>
+
+    </center>
+	</div>
+
+    <!-- share -->
+    
+        
+    <div class="bdsharebuttonbox">
+        <a href="#" class="bds_more" data-cmd="more"></a>
+        <a href="#" class="bds_weixin" data-cmd="weixin" title="分享到微信"></a>
+        <a href="#" class="bds_tsina" data-cmd="tsina" title="分享到新浪微博"></a>
+        <a href="#" class="bds_fbook" data-cmd="fbook" title="分享到Facebook"></a>
+        <a href="#" class="bds_twi" data-cmd="twi" title="分享到Twitter"></a>
+        <a href="#" class="bds_linkedin" data-cmd="linkedin" title="分享到linkedin"></a>
+        <a href="#" class="bds_evernotecn" data-cmd="evernotecn" title="分享到印象笔记"></a>
+        <a href="#" class="bds_youdao" data-cmd="youdao" title="分享到有道云笔记"></a>
+        <a href="#" class="bds_copy" data-cmd="copy" title="分享到复制网址"></a>
+    </div>
+    <script>
+        window._bd_share_config={"common":{"bdSnsKey":{},"bdText":"","bdMini":"2","bdMiniList":false,"bdPic":"","bdStyle":"1","bdSize":"24"},"share":{}};
+        with(document)0[(getElementsByTagName('head')[0]||body).appendChild(createElement('script')).src='http://bdimg.share.baidu.com/static/api/js/share.js?v=89860593.js?cdnversion='+~(-new Date()/36e5)];
+    </script>
+
+
+        
+
+    
+	
+	<!-- comment -->
+	
+<section id="comment">
+  <h2 class="title">Comments</h2>
+
+  
+  	 <div class="ds-thread" data-thread-key="2016/08/28/ptmalloc-1/" data-title="ptmalloc-1" data-url="http://yoursite.com/2016/08/28/ptmalloc-1/"></div>  
+  
+</section>
+
+	</div> <!-- col-md-9/col-md-12 -->
+		
+	
+	<div id="side_meta">
+		<div class="col-md-3" id="post_meta"> 
+
+	<!-- date -->
+	
+	<div class="meta-widget">
+	<i class="fa fa-clock-o"></i>
+	2016-08-28 
+	</div>
+	
+
+	<!-- categories -->
+    
+	<div class="meta-widget">
+	<a data-toggle="collapse" data-target="#categorys"><i class="fa fa-folder"></i></a>	
+    <ul id="categorys" class="tag_box list-unstyled collapse in">
+          
+  <li>
+    <li><a href="/categories/os/">os<span>3</span></a></li>
+  </li>
+
+    </ul>
+	</div>
+	
+
+	<!-- tags -->
+	
+	<div class="meta-widget">
+	<a data-toggle="collapse" data-target="#tags"><i class="fa fa-tags"></i></a>		  
+    <ul id="tags" class="tag_box list-unstyled collapse in">	  
+	    
+  <li><a href="/tags/os/">os<span>3</span></a></li>
+    </ul>
+	</div>
+		
+
+	<!-- toc -->
+	<div class="meta-widget">
+	
+	</div>
+	
+    <hr>
+	
+</div><!-- col-md-3 -->
+
+	</div>
+		
+
+</div><!-- row -->
+
+<script type="text/javascript">
+  var duoshuoQuery = { short_name: 'rtech' };
+  (function() {
+    var ds = document.createElement('script');
+    ds.type = 'text/javascript';
+    ds.async = true;
+    ds.src = 'http://static.duoshuo.com/embed.js';
+    ds.charset = 'UTF-8';
+    (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(ds);
+  })();
+</script>
+
+
+
+	</div>
+  </div>
+  <div class="container-narrow">
+  <footer> <p>
+  &copy; 2016 ray
+  
+      with help from <a href="http://hexo.io/" target="_blank">Hexo</a> and <a href="http://getbootstrap.com/" target="_blank">Twitter Bootstrap</a>. Theme by <a href="http://github.com/wzpan/hexo-theme-freemind/">Freemind</a>.    
+</p> </footer>
+</div> <!-- container-narrow -->
+  
+
+
+  
+<a id="gotop" href="#">   
+  <span>▲</span> 
+</a>
+
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+<script src="/js/bootstrap.min.js"></script>
+<script src="/js/main.js"></script>
+<script src="/js/search.js"></script> 
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+(function($){
+  $('.fancybox').fancybox();
+})(jQuery);
+</script>
+
+
+
+   <script type="text/javascript">      
+     var search_path = "search.xml";
+	 if (search_path.length == 0) {
+	 	search_path = "search.xml";
+	 }
+	 var path = "/" + search_path;
+     searchFunc(path, 'local-search-input', 'local-search-result');
+   </script>
+
+</body>
+   </html>
